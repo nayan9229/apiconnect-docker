@@ -15,42 +15,26 @@ services:
     volumes:
       - es_data:/usr/share/elasticsearch/data
 
-  fakesmtp:
-    image: munkyboy/fakesmtp
-    container_name: fakesmtp
-    volumes:
-      - ./fakesmtp/mail/:/var/mail
-    networks:
-      ibmnet:
-        aliases:
-          - 10.1.0.4:9001
-    restart: always
-
   datapower:
     build: datapower
     container_name: datapower
     networks:
-      ibmnet:
-        aliases:
-          - 10.1.0.4:9002
-          - 10.1.0.4:9003
+      - ibmnet
     environment:
       - DATAPOWER_ACCEPT_LICENSE=$ACCEPT_LICENSE
-    restart: always
 
   apim:
     image: ibmcom/apiconnect:manager-${APIC_VERSION}
-    container_name: apim
     mem_limit: 2048m
     volumes:
       - apim_ihvar:/ihvar
       - apim_wip:/wip
       - config_ssh_keys:/keys:ro
     environment:
-      - MANAGEMENT_CLUSTER_HOST=10.1.0.4:9004
+      - MANAGEMENT_CLUSTER_HOST=apim
       - PORTAL_PRIVATE_KEY=/keys/portal
       - PORTAL_PUBLIC_KEY=/keys/portal.pub
-      - PORTAL_LB=10.1.0.4:9005
+      - PORTAL_LB=ibmportal
       - ES_HOST=esmaster
       - ES_PORT=9500
       - SMTP_HOST
@@ -60,23 +44,19 @@ services:
       - SMTP_SENDER
       - LOGSTASH_HOST=ibmlogstash
       - ACCEPT_LICENSE
+    container_name: apim
     networks:
-      ibmnet:
-        aliases:
-          - 10.1.0.4:9004
+      - ibmnet
     depends_on:
-      - fakesmtp
       - make-ssh-keys
       - esmaster
-    restart: always
 
   ibmportal:
     image: ibmcom/apiconnect:portal-${APIC_VERSION}
-    container_name: ibmportal
     environment:
-      - PORTAL_LB=10.1.0.4:9005
+      - PORTAL_LB=ibmportal
       - PORTAL_PUBLIC_KEY=/keys/portal.pub
-      - APIC_HOST=10.1.0.4:9004
+      - APIC_HOST=apim
       - SMTP_HOST
       - SMTP_PORT
       - SMTP_USERNAME
@@ -87,59 +67,48 @@ services:
       - ibmportal_var:/var
       - ibmportal_etc:/etc
       - config_ssh_keys:/keys:ro
-    ports:
-      - "2222:22"
+    container_name: ibmportal
     depends_on:
       - make-ssh-keys
       - apim
-      - datapower
     networks:
-      ibmnet:
-        aliases:
-          - 10.1.0.4:9005
-    restart: always
+      - ibmnet
+
+  microservice:
+    build: microservice
+    container_name: microservice
+    networks:
+      - ibmnet
 
   logstash:
     image: ibmcom/apiconnect:logstash-${APIC_VERSION}
-    container_name: ibmlogstash
     environment:
       - ES_HOST=esmaster
-      - MGMT_HOST=10.1.0.4:9004
-      - DB_HOST=10.1.0.4:9004
+      - MGMT_HOST=apim
+      - DB_HOST=apim
       - ACCEPT_LICENSE
     networks:
       - ibmnet
+    container_name: ibmlogstash
     depends_on:
       - apim
       - esmaster
-    restart: always
 
   nginx:
     build: sni-proxy
-    container_name: nginx
     environment:
-      - PORTAL_DNS=10.1.0.4:9005
-      - APIM_DNS=10.1.0.4:9004
-      - APIGATEWAY_DNS=10.1.0.4:9003
-      - DATAPOWER_DNS=10.1.0.4:9002
-      - CONSUMER_DNS=10.1.0.4:9009
-      - STUBSVCS_DNS=10.1.0.4:9010
+      - PORTAL_DNS=ibmportal
+      - APIM_DNS=apim
+      - GATEWAY_DNS=datapower
     ports:
       - "443:443"
-      - "80:80"
-    volumes:
-      - /var/log/nginx:/var/log/nginx
+    container_name: nginx
     depends_on:
       - ibmportal
       - datapower
       - apim
-      - consumer
-      - stubsvcs
     networks:
-      ibmnet:
-        aliases:
-          - 10.1.0.4:9013
-    restart: always
+      - ibmnet
 
 volumes:
   config_ssh_keys:
